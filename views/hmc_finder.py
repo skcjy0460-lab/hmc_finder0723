@@ -23,6 +23,15 @@ from lib.nhis_api import NhisApiError  # noqa: E402
 st.title("🏥 국가건강검진기관 찾기")
 st.caption("국민건강보험공단 공공데이터(B550928)를 활용한 지역별 검진기관 검색 · AI 맞춤 추천")
 
+with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러보세요)"):
+    if st.button("getSiDoList 원본 응답 확인"):
+        raw = nhis_api.debug_raw_call(
+            nhis_api.BASE_CODE, "getSiDoList", {"numOfRows": 100, "pageNo": 1}
+        )
+        st.write(f"HTTP 상태 코드: {raw.get('status_code')}")
+        st.code(raw.get("url", ""), language="text")
+        st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
