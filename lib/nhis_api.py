@@ -125,6 +125,11 @@ def _request(base_url: str, operation: str, params: dict) -> dict:
         except ET.ParseError as exc:
             raise NhisApiError(f"[{operation}] XML 파싱 실패: {exc}\n원문: {text[:300]}") from exc
 
+    # 실제 응답이 {"response": {"header":..., "body":...}} 처럼 한 겹 더 감싸져 오는
+    # 케이스가 확인되어(2026-07-23), header/body를 찾기 전에 먼저 벗겨냅니다.
+    if isinstance(parsed, dict) and "response" in parsed and isinstance(parsed["response"], dict):
+        parsed = parsed["response"]
+
     header = parsed.get("header") or parsed.get("cmmMsgHeader") or {}
     result_code = str(header.get("resultCode", "")).strip()
     if header and result_code not in SUCCESS_CODES:
