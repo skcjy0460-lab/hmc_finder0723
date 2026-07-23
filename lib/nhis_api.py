@@ -78,6 +78,28 @@ def _parse_xml(text: str) -> dict:
     return node_to_dict(root)
 
 
+def debug_raw_call(base_url: str, operation: str, params: dict) -> dict:
+    """진단용: 파싱/검증 없이 실제 HTTP 응답을 그대로 반환합니다.
+
+    시도 목록이 비어있는 등 원인을 알 수 없을 때, 이 함수의 결과를 화면에
+    그대로 띄워서 실제 API가 무엇을 반환하는지 확인하는 용도입니다.
+    """
+    url = f"{base_url}/{operation}"
+    query = {"serviceKey": _get_service_key(), "_type": "json"}
+    query.update({k: v for k, v in params.items() if v not in (None, "")})
+
+    try:
+        resp = requests.get(url, params=query, timeout=REQUEST_TIMEOUT)
+    except requests.RequestException as exc:
+        return {"status_code": None, "error": str(exc), "text": ""}
+
+    return {
+        "status_code": resp.status_code,
+        "url": resp.url.split("serviceKey=")[0] + "serviceKey=***",
+        "text": resp.text[:2000],
+    }
+
+
 def _request(base_url: str, operation: str, params: dict) -> dict:
     """공통 GET 요청 + JSON/XML 이중 파싱 + resultCode 검증."""
     url = f"{base_url}/{operation}"
