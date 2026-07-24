@@ -309,22 +309,29 @@ def get_hchk_types_hmc_list(
     return _extract_items(parsed)
 
 
-def fetch_all_nationwide_hmc(page_size: int = 500, max_pages: int = 200) -> list[dict]:
+def fetch_all_nationwide_hmc(
+    page_size: int = 500, max_pages: int = 200
+) -> tuple[list[dict], int]:
     """getRegnHmcList의 지역 파라미터가 정상 동작하지 않는 것으로 확인되어(2026-07-23),
     getHchkTypesHmcList(전국조회)로 전체 데이터를 한 번에 가져오는 방식으로 대체합니다.
     각 item에 이미 siDoCd/siGunGuCd가 포함되어 있어 로컬에서 지역 필터링이 가능합니다.
+
+    반환값: (수집된 item 리스트, 서버가 보고한 totalCount)
+    호출부에서 len(items) < totalCount 이면 중간에 조기 종료된 것이니 경고를 띄우세요.
     """
     all_items: list[dict] = []
     page_no = 1
+    reported_total = 0
     while page_no <= max_pages:
         items, total = get_hchk_types_hmc_list(page_no=page_no, num_of_rows=page_size)
+        reported_total = total
         if not items:
             break
         all_items.extend(items)
         if len(all_items) >= total:
             break
         page_no += 1
-    return all_items
+    return all_items, reported_total
 
 
 def get_holidays_hmc_list(

@@ -117,9 +117,16 @@ with sync_col2:
     if st.button("🔄 전국 데이터 동기화", use_container_width=True):
         with st.spinner("공공데이터포털에서 전국 검진기관 정보를 가져오는 중... (페이지가 많아 시간이 걸릴 수 있어요)"):
             try:
-                items = nhis_api.fetch_all_nationwide_hmc()
+                items, reported_total = nhis_api.fetch_all_nationwide_hmc()
                 count = hmc_database.upsert_items(items)
-                st.success(f"{count}개 기관 정보를 동기화했습니다.")
+                if count < reported_total:
+                    st.warning(
+                        f"⚠️ 서버는 전체 {reported_total}건이라고 알려왔는데 "
+                        f"{count}건만 받아졌습니다. 중간에 응답이 끊겼을 수 있어요. "
+                        "동기화를 한 번 더 눌러보시거나, 계속 반복되면 알려주세요."
+                    )
+                else:
+                    st.success(f"{count}개 기관 정보를 동기화했습니다. (서버 보고 전체: {reported_total}건)")
                 st.rerun()
             except NhisApiError as e:
                 st.error(f"동기화 실패: {e}")
@@ -129,9 +136,13 @@ with sync_col2:
 # 2. 검진 조건 필터
 # ---------------------------------------------------------------------------
 st.subheader("2️⃣ 검진 조건")
+st.caption("아래는 모두 '선택 사항'입니다. 아무것도 입력하지 않으면 선택한 지역의 전체 기관이 나옵니다.")
 
-keyword = st.text_input("기관명 검색 (선택)", placeholder="예: 서울대학교병원")
-required_exams = st.multiselect("받고 싶은 검진 항목", options=EXAM_TYPE_LABELS)
+keyword = st.text_input(
+    "찾은 결과 중 기관명으로 좁히기 (선택)",
+    placeholder="예: 서울대학교병원 (비워두면 전체 기관 표시)",
+)
+required_exams = st.multiselect("받고 싶은 검진 항목 (선택)", options=EXAM_TYPE_LABELS)
 
 st.divider()
 
