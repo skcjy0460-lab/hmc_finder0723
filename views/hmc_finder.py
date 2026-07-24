@@ -95,38 +95,34 @@ with col2:
         disabled=not sigungu_options,
     )
 
-selected_si_gun_gu_cd_raw = sigungu_options.get(sigungu_nm)
+selected_si_gun_gu_cd = sigungu_options.get(sigungu_nm)
 selected_si_do_cd = sido_options.get(sido_nm)
-# HmcSearchService(getRegnHmcList 등)는 CodeServices의 분리형 코드가 아니라
-# 5자리 결합 행정표준코드를 요구하는 것으로 확인되어(2026-07-23), 여기서 변환합니다.
-selected_si_gun_gu_cd = nhis_api.build_sigungu_full_code(selected_si_do_cd, selected_si_gun_gu_cd_raw)
-st.session_state["_debug_si_gun_gu_cd"] = selected_si_gun_gu_cd
+st.session_state["_debug_si_gun_gu_cd"] = nhis_api.build_sigungu_full_code(
+    selected_si_do_cd, selected_si_gun_gu_cd
+)
 st.session_state["_debug_si_do_cd"] = selected_si_do_cd
 
-if selected_si_gun_gu_cd:
-    last_sync = hmc_database.get_last_sync(selected_si_gun_gu_cd)
-    sync_col1, sync_col2 = st.columns([3, 1])
-    with sync_col1:
-        if last_sync:
-            st.info(
-                f"마지막 동기화: {last_sync['synced_at']} · {last_sync['row_count']}개 기관 저장됨"
-            )
-        else:
-            st.warning("아직 이 지역 데이터가 로컬에 없습니다. 먼저 동기화해주세요.")
-    with sync_col2:
-        if st.button("🔄 데이터 동기화", use_container_width=True):
-            with st.spinner("공공데이터포털에서 검진기관 정보를 가져오는 중..."):
-                try:
-                    items = nhis_api.fetch_all_regn_hmc(
-                        si_gun_gu_cd=selected_si_gun_gu_cd, si_do_cd=selected_si_do_cd
-                    )
-                    count = hmc_database.upsert_items(
-                        items, si_gun_gu_cd=selected_si_gun_gu_cd, si_do_cd=selected_si_do_cd
-                    )
-                    st.success(f"{count}개 기관 정보를 동기화했습니다.")
-                    st.rerun()
-                except NhisApiError as e:
-                    st.error(f"동기화 실패: {e}")
+st.divider()
+last_sync = hmc_database.get_last_sync()
+sync_col1, sync_col2 = st.columns([3, 1])
+with sync_col1:
+    if last_sync:
+        st.info(f"마지막 전국 동기화: {last_sync['synced_at']} · {last_sync['row_count']}개 기관 저장됨")
+    else:
+        st.warning(
+            "아직 로컬 데이터가 없습니다. 먼저 전국 데이터를 동기화해주세요 "
+            "(최초 1회, 기관 수에 따라 1~2분 정도 걸릴 수 있습니다)."
+        )
+with sync_col2:
+    if st.button("🔄 전국 데이터 동기화", use_container_width=True):
+        with st.spinner("공공데이터포털에서 전국 검진기관 정보를 가져오는 중... (페이지가 많아 시간이 걸릴 수 있어요)"):
+            try:
+                items = nhis_api.fetch_all_nationwide_hmc()
+                count = hmc_database.upsert_items(items)
+                st.success(f"{count}개 기관 정보를 동기화했습니다.")
+                st.rerun()
+            except NhisApiError as e:
+                st.error(f"동기화 실패: {e}")
 
 
 # ---------------------------------------------------------------------------

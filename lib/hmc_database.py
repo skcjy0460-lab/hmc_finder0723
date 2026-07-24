@@ -2,8 +2,8 @@
 """
 검진기관 데이터 로컬 SQLite 캐시.
 
-공공데이터포털 개발계정 일일 트래픽(10,000건)을 아끼기 위해,
-시군구 단위로 한 번 동기화한 결과를 로컬 DB에 저장해두고
+getRegnHmcList(지역별 조회)가 지역 파라미터로는 정상 동작하지 않는 것으로 확인되어,
+getHchkTypesHmcList(전국조회)로 전체 데이터를 한 번에 받아와 로컬 DB에 저장하고
 화면의 검색/필터는 이 DB에서 처리합니다.
 """
 from __future__ import annotations
@@ -113,20 +113,18 @@ def _row_from_api_item(item: dict) -> dict:
     }
 
 
-def upsert_items(items: list[dict], si_gun_gu_cd: str, si_do_cd: str | None = None) -> int:
+def upsert_items(items: list[dict], sync_key: str = "ALL_NATIONWIDE") -> int:
     """API에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신.
 
-    si_gun_gu_cd: 이번 동기화에 실제로 사용한 지역코드(5자리 결합코드).
-    각 행에 sync_region_full_cd로 그대로 저장해두고, 검색 시 이 값으로
-    필터링합니다. API 응답 item 자체의 siGunGuCd 필드 형식이 무엇이든
-    (3자리든 5자리든) 검색 필터링이 항상 정확히 동작하게 하기 위함입니다.
+    getRegnHmcList(지역별 조회)가 지역 파라미터로는 데이터를 반환하지 않는 것으로
+    확인되어(2026-07-23), 전국조회 API로 한 번에 받아온 결과를 저장하는 방식으로
+    전환했습니다. 지역 필터링은 각 item에 이미 포함된 siDoCd/siGunGuCd 값을
+    그대로 저장해두고 search_local()에서 처리합니다.
     """
     if not items:
         return 0
 
     rows = [_row_from_api_item(it) for it in items]
-    for row in rows:
-        row["sync_region_full_cd"] = si_gun_gu_cd
     cols = list(rows[0].keys())
     placeholders = ", ".join(f":{c}" for c in cols)
     col_list = ", ".join(cols)
@@ -146,23 +144,22 @@ def upsert_items(items: list[dict], si_gun_gu_cd: str, si_do_cd: str | None = No
                 INSERT INTO sync_log (si_gun_gu_cd, si_do_cd, synced_at, row_count)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(si_gun_gu_cd) DO UPDATE SET
-                    si_do_cd=excluded.si_do_cd,
                     synced_at=excluded.synced_at,
                     row_count=excluded.row_count
                 """,
-                (si_gun_gu_cd, si_do_cd, dt.datetime.now().isoformat(timespec="seconds"), len(rows)),
+                (sync_key, None, dt.datetime.now().isoformat(timespec="seconds"), len(rows)),
             )
     finally:
         conn.close()
     return len(rows)
 
 
-def get_last_sync(si_gun_gu_cd: str) -> dict | None:
+def get_last_sync(sync_key: str = "ALL_NATIONWIDE") -> dict | None:
     conn = _connect()
     try:
         cur = conn.execute(
             "SELECT si_gun_gu_cd, si_do_cd, synced_at, row_count FROM sync_log WHERE si_gun_gu_cd=?",
-            (si_gun_gu_cd,),
+            (sync_key,),
         )
         row = cur.fetchone()
         if not row:
@@ -174,19 +171,16 @@ def get_last_sync(si_gun_gu_cd: str) -> dict | None:
 
 
 def search_local(
-    si_do_cd: str | None = None,
-    si_gun_gu_cd: str | None = None,
+    si_do_cd: str | int | None = None,
+    si_gun_gu_cd: str | int | None = None,
     hmc_nm_keyword: str | None = None,
     required_exam_types: list[str] | None = None,
 ) -> pd.DataFrame:
     """로컬 DB에서 조건에 맞는 검진기관을 조회합니다.
 
-    si_gun_gu_cd: 동기화 시 사용한 5자리 결합 지역코드
-        (nhis_api.build_sigungu_full_code()의 결과)를 그대로 넘겨주세요.
-        sync_region_full_cd 컬럼과 매칭해 필터링하므로, API 응답 자체의
-        siGunGuCd 필드 형식과 무관하게 항상 정확히 동작합니다.
-    si_do_cd: 현재는 사용하지 않음 (si_gun_gu_cd에 이미 포함되어 있음).
-        추후 시/도 단위 전체 조회 기능을 추가할 때를 위해 인자만 남겨둡니다.
+    si_do_cd / si_gun_gu_cd: CodeServices(getSiDoList/getSiGunGuList)가 반환하는
+    분리형 코드값을 그대로 넘겨주세요. 전국조회 API의 item 자체에 들어있는
+    siDoCd/siGunGuCd와 같은 코드 체계라 그대로 매칭됩니다.
     """
     conn = _connect()
     try:
@@ -197,8 +191,10 @@ def search_local(
     if df.empty:
         return df
 
-    if si_gun_gu_cd:
-        df = df[df["sync_region_full_cd"] == si_gun_gu_cd]
+    if si_do_cd not in (None, ""):
+        df = df[df["si_do_cd"].astype(str) == str(si_do_cd)]
+    if si_gun_gu_cd not in (None, ""):
+        df = df[df["si_gun_gu_cd"].astype(str) == str(si_gun_gu_cd)]
     if hmc_nm_keyword:
         df = df[df["hmc_nm"].fillna("").str.contains(hmc_nm_keyword, case=False, na=False)]
 

@@ -32,11 +32,23 @@ BASE_HMC = "https://apis.data.go.kr/B550928/HmcSearchService"
 BASE_CODE = "https://apis.data.go.kr/B550928/CodeServices"
 
 SUCCESS_CODES = {"00", "0000", "0", "200"}
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = 25
+MAX_RETRIES = 2  # 최초 시도 + 1회 재시도
 
 
 class NhisApiError(Exception):
     """NHIS 검진기관 API 호출/응답 오류"""
+
+
+def _http_get_with_retry(url: str, params: dict):
+    """공공데이터포털 서버가 가끔 느릴 때가 있어 타임아웃 시 1회 재시도합니다."""
+    last_exc: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            last_exc = exc
+    raise last_exc  # type: ignore[misc]
 
 
 def _get_service_key() -> str:
@@ -89,7 +101,7 @@ def debug_raw_call(base_url: str, operation: str, params: dict) -> dict:
     query.update({k: v for k, v in params.items() if v not in (None, "")})
 
     try:
-        resp = requests.get(url, params=query, timeout=REQUEST_TIMEOUT)
+        resp = _http_get_with_retry(url, query)
     except requests.RequestException as exc:
         return {"status_code": None, "error": str(exc), "text": ""}
 
@@ -107,7 +119,7 @@ def _request(base_url: str, operation: str, params: dict) -> dict:
     query.update({k: v for k, v in params.items() if v not in (None, "")})
 
     try:
-        resp = requests.get(url, params=query, timeout=REQUEST_TIMEOUT)
+        resp = _http_get_with_retry(url, query)
         resp.raise_for_status()
     except requests.RequestException as exc:
         raise NhisApiError(f"[{operation}] 네트워크 오류: {exc}") from exc
@@ -295,6 +307,24 @@ def get_hchk_types_hmc_list(
         {"hchType": hch_type, "pageNo": page_no, "numOfRows": num_of_rows},
     )
     return _extract_items(parsed)
+
+
+def fetch_all_nationwide_hmc(page_size: int = 500, max_pages: int = 200) -> list[dict]:
+    """getRegnHmcList의 지역 파라미터가 정상 동작하지 않는 것으로 확인되어(2026-07-23),
+    getHchkTypesHmcList(전국조회)로 전체 데이터를 한 번에 가져오는 방식으로 대체합니다.
+    각 item에 이미 siDoCd/siGunGuCd가 포함되어 있어 로컬에서 지역 필터링이 가능합니다.
+    """
+    all_items: list[dict] = []
+    page_no = 1
+    while page_no <= max_pages:
+        items, total = get_hchk_types_hmc_list(page_no=page_no, num_of_rows=page_size)
+        if not items:
+            break
+        all_items.extend(items)
+        if len(all_items) >= total:
+            break
+        page_no += 1
+    return all_items
 
 
 def get_holidays_hmc_list(
