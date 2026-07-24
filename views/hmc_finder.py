@@ -67,6 +67,24 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
             st.error(f"조회 실패: {e}")
 
 
+    st.divider()
+    st.caption("지역별로 데이터가 쏠려 보일 때 - pageNo를 늘려도 서버가 같은 페이지만 주는지 확인")
+    if st.button("페이지네이션 동작 확인 (1페이지 vs 2페이지)"):
+        try:
+            items1, total1 = nhis_api.get_hchk_types_hmc_list(page_no=1, num_of_rows=5)
+            items2, total2 = nhis_api.get_hchk_types_hmc_list(page_no=2, num_of_rows=5)
+            hmc_no_1 = [it.get("hmcNo") for it in items1]
+            hmc_no_2 = [it.get("hmcNo") for it in items2]
+            st.write(f"1페이지 hmcNo: {hmc_no_1} (totalCount={total1})")
+            st.write(f"2페이지 hmcNo: {hmc_no_2} (totalCount={total2})")
+            if hmc_no_1 == hmc_no_2:
+                st.error("❌ 1페이지와 2페이지가 완전히 동일합니다 → pageNo가 무시되는 버그로 확인됩니다.")
+            else:
+                st.success("✅ 서로 다른 데이터입니다 → 페이지네이션 자체는 정상 동작합니다.")
+        except NhisApiError as e:
+            st.error(f"조회 실패: {e}")
+
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
