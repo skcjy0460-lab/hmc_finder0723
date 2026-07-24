@@ -47,6 +47,16 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
         st.code(raw.get("url", ""), language="text")
         st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
 
+    st.divider()
+    st.caption("위 두 개가 전부 0건이면, 아래로 '지역 필터 없이' 전국 데이터가 있는지 확인해보세요.")
+    if st.button("getHchkTypesHmcList (전국조회) 원본 응답 확인"):
+        params = {"pageNo": 1, "numOfRows": 5}
+        raw = nhis_api.debug_raw_call(nhis_api.BASE_HMC, "getHchkTypesHmcList", params)
+        st.write(f"HTTP 상태 코드: {raw.get('status_code')}")
+        st.code(raw.get("url", ""), language="text")
+        st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
+
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
