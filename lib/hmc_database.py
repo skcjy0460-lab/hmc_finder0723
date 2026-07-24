@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS sync_log (
     si_gun_gu_cd TEXT PRIMARY KEY,
     si_do_cd TEXT,
     synced_at TEXT,
-    row_count INTEGER
+    row_count INTEGER,
+    reported_total INTEGER
 );
 """
 
@@ -75,7 +76,26 @@ def _connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    _migrate_add_missing_columns(conn)
     return conn
+
+
+def _migrate_add_missing_columns(conn: sqlite3.Connection) -> None:
+    """이전 버전에서 만들어진 DB 파일에 새로 추가된 컬럼이 없으면 안전하게 추가합니다.
+
+    CREATE TABLE IF NOT EXISTS는 이미 존재하는 테이블의 컬럼 구조를 바꿔주지 않으므로,
+    스키마에 컬럼을 추가할 때마다 여기에도 함께 추가해주세요.
+    """
+    required = {
+        "hmc": {"sync_region_full_cd": "TEXT"},
+        "sync_log": {"reported_total": "INTEGER"},
+    }
+    for table, columns in required.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for col, col_type in columns.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+    conn.commit()
 
 
 def _row_from_api_item(item: dict) -> dict:
@@ -113,13 +133,18 @@ def _row_from_api_item(item: dict) -> dict:
     }
 
 
-def upsert_items(items: list[dict], sync_key: str = "ALL_NATIONWIDE") -> int:
+def upsert_items(
+    items: list[dict], sync_key: str = "ALL_NATIONWIDE", reported_total: int | None = None
+) -> int:
     """API에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신.
 
     getRegnHmcList(지역별 조회)가 지역 파라미터로는 데이터를 반환하지 않는 것으로
     확인되어(2026-07-23), 전국조회 API로 한 번에 받아온 결과를 저장하는 방식으로
     전환했습니다. 지역 필터링은 각 item에 이미 포함된 siDoCd/siGunGuCd 값을
     그대로 저장해두고 search_local()에서 처리합니다.
+
+    reported_total: 서버가 응답에서 알려준 totalCount. row_count와 다르면
+    동기화가 중간에 끊겼다는 뜻이라 get_last_sync()로 항상 비교 확인이 가능합니다.
     """
     if not items:
         return 0
@@ -141,13 +166,20 @@ def upsert_items(items: list[dict], sync_key: str = "ALL_NATIONWIDE") -> int:
             conn.executemany(sql, rows)
             conn.execute(
                 """
-                INSERT INTO sync_log (si_gun_gu_cd, si_do_cd, synced_at, row_count)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO sync_log (si_gun_gu_cd, si_do_cd, synced_at, row_count, reported_total)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(si_gun_gu_cd) DO UPDATE SET
                     synced_at=excluded.synced_at,
-                    row_count=excluded.row_count
+                    row_count=excluded.row_count,
+                    reported_total=excluded.reported_total
                 """,
-                (sync_key, None, dt.datetime.now().isoformat(timespec="seconds"), len(rows)),
+                (
+                    sync_key,
+                    None,
+                    dt.datetime.now().isoformat(timespec="seconds"),
+                    len(rows),
+                    reported_total,
+                ),
             )
     finally:
         conn.close()
@@ -158,13 +190,14 @@ def get_last_sync(sync_key: str = "ALL_NATIONWIDE") -> dict | None:
     conn = _connect()
     try:
         cur = conn.execute(
-            "SELECT si_gun_gu_cd, si_do_cd, synced_at, row_count FROM sync_log WHERE si_gun_gu_cd=?",
+            "SELECT si_gun_gu_cd, si_do_cd, synced_at, row_count, reported_total "
+            "FROM sync_log WHERE si_gun_gu_cd=?",
             (sync_key,),
         )
         row = cur.fetchone()
         if not row:
             return None
-        keys = ["si_gun_gu_cd", "si_do_cd", "synced_at", "row_count"]
+        keys = ["si_gun_gu_cd", "si_do_cd", "synced_at", "row_count", "reported_total"]
         return dict(zip(keys, row))
     finally:
         conn.close()

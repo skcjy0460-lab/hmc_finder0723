@@ -57,6 +57,16 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
         st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
 
 
+    st.divider()
+    st.caption("전국에 실제로 몇 건이 있는지 궁금할 때 (원본 텍스트가 길어 잘리는 문제 없이 바로 확인)")
+    if st.button("전국 totalCount만 정확히 확인"):
+        try:
+            _, total = nhis_api.get_hchk_types_hmc_list(page_no=1, num_of_rows=1)
+            st.write(f"📊 getHchkTypesHmcList가 보고하는 전국 totalCount: **{total}건**")
+        except NhisApiError as e:
+            st.error(f"조회 실패: {e}")
+
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
@@ -107,7 +117,19 @@ last_sync = hmc_database.get_last_sync()
 sync_col1, sync_col2 = st.columns([3, 1])
 with sync_col1:
     if last_sync:
-        st.info(f"마지막 전국 동기화: {last_sync['synced_at']} · {last_sync['row_count']}개 기관 저장됨")
+        reported = last_sync.get("reported_total")
+        if reported and last_sync["row_count"] < reported:
+            st.warning(
+                f"⚠️ 마지막 동기화: {last_sync['synced_at']} · "
+                f"로컬 저장 {last_sync['row_count']}건 / 서버 보고 전체 {reported}건 "
+                "(중간에 끊긴 것으로 보입니다. 동기화를 다시 눌러주세요)"
+            )
+        else:
+            st.info(
+                f"마지막 전국 동기화: {last_sync['synced_at']} · "
+                f"{last_sync['row_count']}개 기관 저장됨"
+                + (f" (서버 보고 전체 {reported}건과 일치)" if reported else "")
+            )
     else:
         st.warning(
             "아직 로컬 데이터가 없습니다. 먼저 전국 데이터를 동기화해주세요 "
@@ -118,15 +140,7 @@ with sync_col2:
         with st.spinner("공공데이터포털에서 전국 검진기관 정보를 가져오는 중... (페이지가 많아 시간이 걸릴 수 있어요)"):
             try:
                 items, reported_total = nhis_api.fetch_all_nationwide_hmc()
-                count = hmc_database.upsert_items(items)
-                if count < reported_total:
-                    st.warning(
-                        f"⚠️ 서버는 전체 {reported_total}건이라고 알려왔는데 "
-                        f"{count}건만 받아졌습니다. 중간에 응답이 끊겼을 수 있어요. "
-                        "동기화를 한 번 더 눌러보시거나, 계속 반복되면 알려주세요."
-                    )
-                else:
-                    st.success(f"{count}개 기관 정보를 동기화했습니다. (서버 보고 전체: {reported_total}건)")
+                hmc_database.upsert_items(items, reported_total=reported_total)
                 st.rerun()
             except NhisApiError as e:
                 st.error(f"동기화 실패: {e}")
