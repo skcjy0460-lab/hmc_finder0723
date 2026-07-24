@@ -162,6 +162,18 @@ def _extract_items(parsed: dict) -> tuple[list[dict], int]:
 # 코드 조회 서비스 (B550928/CodeServices)
 # ---------------------------------------------------------------------------
 
+def build_sigungu_full_code(si_do_cd, si_gun_gu_cd) -> str | None:
+    """CodeServices가 반환하는 분리형 코드(siDoCd 2자리 + siGunGuCd 3자리)를
+    HmcSearchService가 요구하는 것으로 확인된 5자리 결합 행정표준코드로 변환합니다.
+
+    예: siDoCd=27(대구), siGunGuCd=290(달서구) -> "27290"
+    (2026-07-23 실제 API 테스트로 확인됨: 분리 코드로 호출 시 totalCount=0)
+    """
+    if si_do_cd in (None, "") or si_gun_gu_cd in (None, ""):
+        return None
+    return f"{int(si_do_cd)}{int(si_gun_gu_cd):03d}"
+
+
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def get_sido_list() -> list[dict]:
     """시도 코드 목록"""

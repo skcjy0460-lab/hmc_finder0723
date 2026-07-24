@@ -85,8 +85,11 @@ with col2:
         disabled=not sigungu_options,
     )
 
-selected_si_gun_gu_cd = sigungu_options.get(sigungu_nm)
+selected_si_gun_gu_cd_raw = sigungu_options.get(sigungu_nm)
 selected_si_do_cd = sido_options.get(sido_nm)
+# HmcSearchService(getRegnHmcList 등)는 CodeServices의 분리형 코드가 아니라
+# 5자리 결합 행정표준코드를 요구하는 것으로 확인되어(2026-07-23), 여기서 변환합니다.
+selected_si_gun_gu_cd = nhis_api.build_sigungu_full_code(selected_si_do_cd, selected_si_gun_gu_cd_raw)
 st.session_state["_debug_si_gun_gu_cd"] = selected_si_gun_gu_cd
 st.session_state["_debug_si_do_cd"] = selected_si_do_cd
 

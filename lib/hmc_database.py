@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS hmc (
     cc_exmd_chrg_type_cd TEXT,
     bc_exmd_chrg_type_cd TEXT,
     cvxca_exmd_chrg_type_cd TEXT,
+    sync_region_full_cd TEXT,
     synced_at TEXT
 );
 
@@ -113,11 +114,19 @@ def _row_from_api_item(item: dict) -> dict:
 
 
 def upsert_items(items: list[dict], si_gun_gu_cd: str, si_do_cd: str | None = None) -> int:
-    """API에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신."""
+    """API에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신.
+
+    si_gun_gu_cd: 이번 동기화에 실제로 사용한 지역코드(5자리 결합코드).
+    각 행에 sync_region_full_cd로 그대로 저장해두고, 검색 시 이 값으로
+    필터링합니다. API 응답 item 자체의 siGunGuCd 필드 형식이 무엇이든
+    (3자리든 5자리든) 검색 필터링이 항상 정확히 동작하게 하기 위함입니다.
+    """
     if not items:
         return 0
 
     rows = [_row_from_api_item(it) for it in items]
+    for row in rows:
+        row["sync_region_full_cd"] = si_gun_gu_cd
     cols = list(rows[0].keys())
     placeholders = ", ".join(f":{c}" for c in cols)
     col_list = ", ".join(cols)
@@ -170,7 +179,15 @@ def search_local(
     hmc_nm_keyword: str | None = None,
     required_exam_types: list[str] | None = None,
 ) -> pd.DataFrame:
-    """로컬 DB에서 조건에 맞는 검진기관을 조회합니다."""
+    """로컬 DB에서 조건에 맞는 검진기관을 조회합니다.
+
+    si_gun_gu_cd: 동기화 시 사용한 5자리 결합 지역코드
+        (nhis_api.build_sigungu_full_code()의 결과)를 그대로 넘겨주세요.
+        sync_region_full_cd 컬럼과 매칭해 필터링하므로, API 응답 자체의
+        siGunGuCd 필드 형식과 무관하게 항상 정확히 동작합니다.
+    si_do_cd: 현재는 사용하지 않음 (si_gun_gu_cd에 이미 포함되어 있음).
+        추후 시/도 단위 전체 조회 기능을 추가할 때를 위해 인자만 남겨둡니다.
+    """
     conn = _connect()
     try:
         df = pd.read_sql_query("SELECT * FROM hmc", conn)
@@ -180,10 +197,8 @@ def search_local(
     if df.empty:
         return df
 
-    if si_do_cd:
-        df = df[df["si_do_cd"] == si_do_cd]
     if si_gun_gu_cd:
-        df = df[df["si_gun_gu_cd"] == si_gun_gu_cd]
+        df = df[df["sync_region_full_cd"] == si_gun_gu_cd]
     if hmc_nm_keyword:
         df = df[df["hmc_nm"].fillna("").str.contains(hmc_nm_keyword, case=False, na=False)]
 
