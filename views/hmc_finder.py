@@ -32,6 +32,21 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
         st.code(raw.get("url", ""), language="text")
         st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
 
+    st.divider()
+    st.caption("아래는 시/도·시/군/구를 먼저 선택한 뒤, 동기화가 0건일 때 눌러보세요.")
+    if st.button("getRegnHmcList 원본 응답 확인"):
+        params = {
+            "siGunGuCd": st.session_state.get("_debug_si_gun_gu_cd"),
+            "siDoCd": st.session_state.get("_debug_si_do_cd"),
+            "pageNo": 1,
+            "numOfRows": 10,
+        }
+        raw = nhis_api.debug_raw_call(nhis_api.BASE_HMC, "getRegnHmcList", params)
+        st.write(f"요청 파라미터: {params}")
+        st.write(f"HTTP 상태 코드: {raw.get('status_code')}")
+        st.code(raw.get("url", ""), language="text")
+        st.code(raw.get("text", "") or raw.get("error", "(응답 없음)"), language="xml")
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
@@ -72,6 +87,8 @@ with col2:
 
 selected_si_gun_gu_cd = sigungu_options.get(sigungu_nm)
 selected_si_do_cd = sido_options.get(sido_nm)
+st.session_state["_debug_si_gun_gu_cd"] = selected_si_gun_gu_cd
+st.session_state["_debug_si_do_cd"] = selected_si_do_cd
 
 if selected_si_gun_gu_cd:
     last_sync = hmc_database.get_last_sync(selected_si_gun_gu_cd)
