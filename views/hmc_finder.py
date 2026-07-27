@@ -85,6 +85,20 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
             st.error(f"조회 실패: {e}")
 
 
+    st.divider()
+    st.caption("hchType(검진종류) 필터를 지정하면 결과가 달라지는지 확인 (644건 문제 원인 파악용)")
+    if st.button("검진종류 코드 + 종류별 totalCount 확인"):
+        try:
+            hchtype_items = nhis_api.get_hchtype_list()
+            st.write("검진종류 코드 목록:", hchtype_items)
+            for hc in hchtype_items:
+                code = hc.get("detailCode")
+                _, total = nhis_api.get_hchk_types_hmc_list(hch_type=code, num_of_rows=1)
+                st.write(f"- hchType={code} ({hc.get('detailCodeDesc')}) → totalCount={total}")
+        except NhisApiError as e:
+            st.error(f"조회 실패: {e}")
+
+
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
 
@@ -136,26 +150,19 @@ sync_col1, sync_col2 = st.columns([3, 1])
 with sync_col1:
     if last_sync:
         reported = last_sync.get("reported_total")
-        if reported and last_sync["row_count"] < reported:
-            st.warning(
-                f"⚠️ 마지막 동기화: {last_sync['synced_at']} · "
-                f"로컬 저장 {last_sync['row_count']}건 / 서버 보고 전체 {reported}건 "
-                "(중간에 끊긴 것으로 보입니다. 동기화를 다시 눌러주세요)"
-            )
-        else:
-            st.info(
-                f"마지막 전국 동기화: {last_sync['synced_at']} · "
-                f"{last_sync['row_count']}개 기관 저장됨"
-                + (f" (서버 보고 전체 {reported}건과 일치)" if reported else "")
-            )
+        st.info(
+            f"마지막 전국 동기화: {last_sync['synced_at']} · "
+            f"고유 기관 {last_sync['row_count']}건 저장됨"
+            + (f" (검진종류별 조회 합계 참고치: {reported}건, 기관 중복 포함이라 더 큽니다)" if reported else "")
+        )
     else:
         st.warning(
             "아직 로컬 데이터가 없습니다. 먼저 전국 데이터를 동기화해주세요 "
-            "(최초 1회, 기관 수에 따라 1~2분 정도 걸릴 수 있습니다)."
+            "(검진종류별로 나눠 받아오기 때문에 몇 분 정도 걸릴 수 있습니다)."
         )
 with sync_col2:
     if st.button("🔄 전국 데이터 동기화", use_container_width=True):
-        with st.spinner("공공데이터포털에서 전국 검진기관 정보를 가져오는 중... (페이지가 많아 시간이 걸릴 수 있어요)"):
+        with st.spinner("공공데이터포털에서 검진종류별로 전국 검진기관 정보를 가져오는 중... (몇 분 걸릴 수 있어요)"):
             try:
                 items, reported_total = nhis_api.fetch_all_nationwide_hmc()
                 hmc_database.upsert_items(items, reported_total=reported_total)

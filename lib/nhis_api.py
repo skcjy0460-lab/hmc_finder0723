@@ -312,26 +312,44 @@ def get_hchk_types_hmc_list(
 def fetch_all_nationwide_hmc(
     page_size: int = 500, max_pages: int = 200
 ) -> tuple[list[dict], int]:
-    """getRegnHmcList의 지역 파라미터가 정상 동작하지 않는 것으로 확인되어(2026-07-23),
-    getHchkTypesHmcList(전국조회)로 전체 데이터를 한 번에 가져오는 방식으로 대체합니다.
-    각 item에 이미 siDoCd/siGunGuCd가 포함되어 있어 로컬에서 지역 필터링이 가능합니다.
+    """전국 검진기관 데이터를 모두 가져옵니다.
 
-    반환값: (수집된 item 리스트, 서버가 보고한 totalCount)
-    호출부에서 len(items) < totalCount 이면 중간에 조기 종료된 것이니 경고를 띄우세요.
+    ⚠️ getHchkTypesHmcList를 hchType 없이 부르면 서버가 전체가 아니라
+    644건짜리 부분집합만 반환하는 것으로 확인되었습니다(2026-07-24).
+    그래서 getHchTypeList로 실제 검진종류 코드를 모두 가져온 뒤,
+    코드별로 각각 조회해서 hmcNo 기준으로 중복 제거하며 합치는 방식으로
+    전환했습니다. (기관 하나가 여러 검진종류를 지원하면 여러 코드 조회에서
+    중복으로 나오므로, hmcNo로 반드시 중복 제거해야 합니다.)
+
+    반환값: (중복 제거된 item 리스트, 코드별 totalCount 합계 - 참고용 상한치)
     """
-    all_items: list[dict] = []
-    page_no = 1
-    reported_total = 0
-    while page_no <= max_pages:
-        items, total = get_hchk_types_hmc_list(page_no=page_no, num_of_rows=page_size)
-        reported_total = total
-        if not items:
-            break
-        all_items.extend(items)
-        if len(all_items) >= total:
-            break
-        page_no += 1
-    return all_items, reported_total
+    hchtype_items = get_hchtype_list()
+    codes = [hc.get("detailCode") for hc in hchtype_items if hc.get("detailCode")]
+
+    merged: dict[str, dict] = {}
+    reported_total_sum = 0
+
+    # hchType 코드가 하나도 없으면(코드 목록 조회 자체가 비정상) 필터 없이라도 시도
+    code_list = codes or [None]
+
+    for code in code_list:
+        page_no = 1
+        while page_no <= max_pages:
+            items, total = get_hchk_types_hmc_list(
+                hch_type=code, page_no=page_no, num_of_rows=page_size
+            )
+            if page_no == 1:
+                reported_total_sum += total
+            if not items:
+                break
+            for it in items:
+                hmc_no = str(it.get("hmcNo"))
+                merged[hmc_no] = it  # hmcNo 기준 중복 제거 (마지막 값으로 덮어써도 내용은 동일)
+            if len(merged) >= total and page_no * page_size >= total:
+                break
+            page_no += 1
+
+    return list(merged.values()), reported_total_sum
 
 
 def get_holidays_hmc_list(
