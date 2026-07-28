@@ -98,6 +98,22 @@ with st.expander("🔧 API 연결 진단 (시도 목록이 안 보일 때 눌러
         except NhisApiError as e:
             st.error(f"조회 실패: {e}")
 
+    st.divider()
+    st.caption("현재 로컬 DB에 저장된 기관이 지역별로 몇 개씩 있는지 (대구가 아예 없는지 확인용)")
+    if st.button("지역별 저장 현황 확인"):
+        all_df = hmc_database.search_local()
+        if all_df.empty:
+            st.warning("로컬 DB가 비어있습니다. 먼저 동기화해주세요.")
+        else:
+            region_counts = all_df.groupby("si_do_cd").size().reset_index(name="기관수")
+            # 시도명을 붙여서 보기 좋게 표시
+            sido_name_map = {str(it["siDoCd"]): it["siDoNm"] for it in nhis_api.get_sido_list()}
+            region_counts["시도명"] = region_counts["si_do_cd"].astype(str).map(sido_name_map)
+            st.dataframe(
+                region_counts[["시도명", "si_do_cd", "기관수"]].sort_values("기관수", ascending=False),
+                hide_index=True,
+            )
+
 
 EXAM_TYPE_LABELS = list(hmc_database.EXAM_TYPE_FIELDS.keys())
 
