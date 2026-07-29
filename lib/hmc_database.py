@@ -25,12 +25,13 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "hmc_cache.db"
 EXAM_TYPE_FIELDS = {
     "일반건강검진": "gren_chrg_type_cd",
     "영유아검진": "ichk_chrg_type_cd",
-    "생애전환기검진": "mchk_chrg_type_cd",
     "위암검진": "stmca_exmd_chrg_type_cd",
     "간암검진": "lvca_exmd_chrg_type_cd",
     "대장암검진": "cc_exmd_chrg_type_cd",
     "유방암검진": "bc_exmd_chrg_type_cd",
     "자궁경부암검진": "cvxca_exmd_chrg_type_cd",
+    "구강검진": "oral_chrg_type_cd",
+    "폐암검진": "lungca_chrg_type_cd",
 }
 CHRG_AVAILABLE_VALUES = {"1", "Y", "y", "가능", "01", "true", "True"}
 
@@ -58,7 +59,10 @@ CREATE TABLE IF NOT EXISTS hmc (
     cc_exmd_chrg_type_cd TEXT,
     bc_exmd_chrg_type_cd TEXT,
     cvxca_exmd_chrg_type_cd TEXT,
+    oral_chrg_type_cd TEXT,
+    lungca_chrg_type_cd TEXT,
     sync_region_full_cd TEXT,
+    source TEXT,
     synced_at TEXT
 );
 
@@ -87,7 +91,12 @@ def _migrate_add_missing_columns(conn: sqlite3.Connection) -> None:
     스키마에 컬럼을 추가할 때마다 여기에도 함께 추가해주세요.
     """
     required = {
-        "hmc": {"sync_region_full_cd": "TEXT"},
+        "hmc": {
+            "sync_region_full_cd": "TEXT",
+            "source": "TEXT",
+            "oral_chrg_type_cd": "TEXT",
+            "lungca_chrg_type_cd": "TEXT",
+        },
         "sync_log": {"reported_total": "INTEGER"},
     }
     for table, columns in required.items():
@@ -129,27 +138,29 @@ def _row_from_api_item(item: dict) -> dict:
         "cc_exmd_chrg_type_cd": item.get("ccExmdChrgTypeCd"),
         "bc_exmd_chrg_type_cd": item.get("bcExmdChrgTypeCd"),
         "cvxca_exmd_chrg_type_cd": item.get("cvxcaExmdChrgTypeCd"),
+        "oral_chrg_type_cd": item.get("oralChrgTypeCd"),
+        "lungca_chrg_type_cd": item.get("lungcaChrgTypeCd"),
         "synced_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
 
 
 def upsert_items(
-    items: list[dict], sync_key: str = "ALL_NATIONWIDE", reported_total: int | None = None
+    items: list[dict],
+    sync_key: str = "ALL_NATIONWIDE",
+    reported_total: int | None = None,
+    source: str = "api",
 ) -> int:
-    """API에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신.
+    """API 또는 파일에서 받은 검진기관 item 리스트를 DB에 upsert하고 sync_log를 갱신.
 
-    getRegnHmcList(지역별 조회)가 지역 파라미터로는 데이터를 반환하지 않는 것으로
-    확인되어(2026-07-23), 전국조회 API로 한 번에 받아온 결과를 저장하는 방식으로
-    전환했습니다. 지역 필터링은 각 item에 이미 포함된 siDoCd/siGunGuCd 값을
-    그대로 저장해두고 search_local()에서 처리합니다.
-
-    reported_total: 서버가 응답에서 알려준 totalCount. row_count와 다르면
-    동기화가 중간에 끊겼다는 뜻이라 get_last_sync()로 항상 비교 확인이 가능합니다.
+    source: 'api'(공공데이터 API) 또는 'file_import'(수동 업로드한 전체 데이터 파일).
+    화면에서 데이터 출처를 구분해서 보여줄 때 사용합니다.
     """
     if not items:
         return 0
 
     rows = [_row_from_api_item(it) for it in items]
+    for row in rows:
+        row["source"] = source
     cols = list(rows[0].keys())
     placeholders = ", ".join(f":{c}" for c in cols)
     col_list = ", ".join(cols)
